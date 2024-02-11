@@ -1,0 +1,1402 @@
+---
+title: "population"
+author: "Fajle Rabbi Ashik"
+date: '2023-09-25'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r }
+library(cancensus)
+library(sf)
+library(dplyr)
+library(tidyverse)
+library(scales)
+library (misty)
+```
+
+```{r}
+options(cancensus.api_key = "CensusMapper_46dc8ba53521ef9299d27d05b7e531e3")
+options(cancensus.cache_path = getwd())
+```
+
+```{r}
+var_21 <- list_census_vectors('CA21') 
+          
+```
+
+
+```{r}
+popu_21 <- get_census(dataset='CA21', regions=list(C = "01"),
+                      vectors = c("popu_21" = "v_CA21_1", "t"="v_CA21_7656"),
+                      level='CT', geo_format = "sf") %>% 
+           rename ("GeoUID_21" = "GeoUID")%>% 
+           rename ("Area_21" = "Area (sq km)")
+```
+
+```{r}
+popu_16 <- get_census(dataset = 'CA16', regions=list(C = "01"),
+                      vectors = c("popu_16" = "v_CA16_401"),
+                      level = 'CT', geo_format = "sf")%>% 
+           rename ("Area_16" = "Area (sq km)") 
+```
+
+```{r}
+centroids_21 <- st_point_on_surface(popu_21)
+```
+
+```{r}
+inter_21_16 <- st_join (centroids_21, popu_16, join = st_within)%>%
+  st_drop_geometry
+```
+
+```{r}
+comp_21_16 <- inter_21_16[complete.cases(inter_21_16[ ,'GeoUID']), ]
+```
+
+```{r}
+unchanged_ct_21_16 <- comp_21_16 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>% 
+  mutate (den_21=popu_21/Area_21) %>% 
+  mutate (den_16=popu_16/Area_16) %>%
+  select (GeoUID_21, GeoUID, popu_21, popu_16, den_21, den_16)
+```
+
+
+```{r}
+na_CT_16 <- inter_21_16[is.na(inter_21_16$GeoUID), ]%>%
+               mutate (den_21=popu_21/Area_21) %>% 
+               mutate (den_16=0) %>% 
+               select(GeoUID_21, GeoUID, popu_21, popu_16, den_21, den_16)
+               
+```
+
+```{r }
+changed_ct_21_16 <- comp_21_16 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   mutate(popu_16 = coalesce (popu_16, 0)) %>%
+                   select(GeoUID_21, GeoUID, popu_21, popu_16, Area_21)   
+
+changed_ct_o_21_16 <- changed_ct_21_16 %>% 
+                      arrange(GeoUID)
+
+unique_id_21_16 <- unique(changed_ct_o_21_16$GeoUID)
+
+
+popu_16_t <- list()
+
+for (id in unique_id_21_16) {
+  changed_ct_o_21_16_temp <- changed_ct_o_21_16[changed_ct_o_21_16$GeoUID == id, ]
+  
+  denominator_21_16 = sum(changed_ct_o_21_16_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_16_temp)) {
+    changed_ct_o_21_16_temp2 <- changed_ct_o_21_16_temp[i, ]
+    
+    numerator_21_16 <- changed_ct_o_21_16_temp2$popu_16 * changed_ct_o_21_16_temp2$popu_21
+    
+    popu_16_t <- append(popu_16_t, numerator_21_16/denominator_21_16)
+  } 
+}
+
+
+popu_16_t <- unlist(popu_16_t, use.names = FALSE)%>%
+              as.integer ()
+
+changed_ct_o_21_16$popu_16_t <- popu_16_t
+
+chnaged_ct_f_21_16 <- changed_ct_o_21_16 %>%
+                mutate(popu_16=popu_16_t) %>%
+                mutate (den_21=popu_21/Area_21) %>% 
+                mutate (den_16=popu_16/Area_21) %>%
+                select(-popu_16_t, -Area_21) 
+```                
+
+```{r}
+popu_16_21 <- rbind (unchanged_ct_21_16, chnaged_ct_f_21_16,na_CT_16) %>% 
+              rename ("GeoUID_16"= "GeoUID")
+```
+
+# 2011_2021
+```{r}
+popu_11 <- get_census(dataset = 'CA11', regions=list(C = "01"),
+                      vectors = c("popu_11" = "v_CA11F_1"),
+                      level = 'CT', geo_format = "sf") %>% 
+           rename ("Area_11" = "Area (sq km)")
+```
+
+```{r}
+inter_21_11 <- st_join (centroids_21, popu_11, join = st_within)%>%
+               st_drop_geometry
+```
+
+```{r}
+comp_21_11 <- inter_21_11[complete.cases(inter_21_11[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_11 <-  comp_21_11 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>% 
+  mutate (den_11=popu_11/Area_11) %>%
+  select(GeoUID_21, GeoUID, popu_11, den_11)
+```
+
+```{r}
+na_CT_11 <- inter_21_11[is.na(inter_21_11$GeoUID), ]%>%
+  mutate (den_11=0) %>%
+  select(GeoUID_21, GeoUID,popu_11, den_11)
+```
+
+
+```{r }
+changed_ct_21_11 <- comp_21_11 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_11 = coalesce (popu_11, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_11, Area_21)   
+
+changed_ct_o_21_11 <- changed_ct_21_11%>% 
+                      arrange(GeoUID)
+
+unique_id_21_11 <- unique(changed_ct_o_21_11$GeoUID)
+
+
+popu_11_t <- list()
+
+for (id in unique_id_21_11) {
+  changed_ct_o_21_11_temp <- changed_ct_o_21_11[changed_ct_o_21_11$GeoUID == id, ]
+  
+  denominator_21_11 = sum(changed_ct_o_21_11_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_11_temp)) {
+    changed_ct_o_21_11_temp2 <- changed_ct_o_21_11_temp[i, ]
+    
+    numerator_21_11 <- changed_ct_o_21_11_temp2$popu_11 * changed_ct_o_21_11_temp2$popu_21
+    
+    popu_11_t <- append(popu_11_t, numerator_21_11/denominator_21_11)
+  } 
+}
+
+
+popu_11_t <- unlist(popu_11_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_11$popu_11_t <- popu_11_t
+
+chnaged_ct_f_21_11 <- changed_ct_o_21_11 %>%
+  mutate(popu_11=popu_11_t) %>%
+  mutate (den_11=popu_11/Area_21) %>%
+  select (-popu_21,-popu_11_t, -Area_21)
+```
+
+```{r }
+popu_21_11 <- rbind (unchanged_ct_21_11, chnaged_ct_f_21_11,na_CT_11) %>% 
+              rename ("GeoUID_11"= "GeoUID")
+```
+
+```{r }
+popu_21_16_11 <- merge (popu_16_21, popu_21_11, by = "GeoUID_21") 
+```
+  
+
+# 2006_2021
+```{r }
+popu_06 <- get_census(dataset = 'CA06', regions=list(C = "01"),
+                      vectors = c("popu_06" = "v_CA06_1"),
+                      level = 'CT', geo_format = "sf") %>% 
+           rename ("Area_06" = "Area (sq km)")
+```
+
+```{r }
+inter_21_06 <- st_join (centroids_21, popu_06, join = st_within)%>%
+              st_drop_geometry ()
+```
+
+```{r}
+comp_21_06 <- inter_21_06[complete.cases(inter_21_06[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_21_06 <- comp_21_06 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>% 
+  mutate (den_06=popu_06/Area_06) %>%
+  select(GeoUID_21, GeoUID, popu_06, den_06)
+```
+
+
+```{r }
+na_CT_06 <- inter_21_06[is.na(inter_21_06$GeoUID), ]%>%
+  mutate (den_06=0) %>%
+  select(GeoUID_21, GeoUID, popu_06, den_06)
+```
+
+
+```{r }
+changed_ct_21_06 <- comp_21_06 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_06 = coalesce (popu_06, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_06, Area_21)   
+
+changed_ct_o_21_06 <- changed_ct_21_06%>% 
+                      arrange(GeoUID)
+
+unique_id_21_06 <- unique(changed_ct_o_21_06$GeoUID)
+
+
+popu_06_t <- list()
+
+for (id in unique_id_21_06) {
+  changed_ct_o_21_06_temp <- changed_ct_o_21_06[changed_ct_o_21_06$GeoUID == id, ]
+  
+  denominator_21_06 = sum(changed_ct_o_21_06_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_06_temp)) {
+    changed_ct_o_21_06_temp2 <- changed_ct_o_21_06_temp[i, ]
+    
+    numerator_21_06 <- changed_ct_o_21_06_temp2$popu_06 * changed_ct_o_21_06_temp2$popu_21
+    
+    popu_06_t <- append(popu_06_t, numerator_21_06/denominator_21_06)
+  } 
+}
+
+
+popu_06_t <- unlist(popu_06_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_06$popu_06_t <- popu_06_t
+```
+
+
+```{r }
+chnaged_ct_f_21_06 <- changed_ct_o_21_06 %>%
+  mutate(popu_06=popu_06_t) %>%
+  mutate (den_06=popu_06/Area_21) %>%
+  select (-popu_21,-popu_06_t, -Area_21)
+```
+
+```{r }
+popu_21_06 <- rbind (unchanged_ct_21_06, chnaged_ct_f_21_06,na_CT_06) %>% 
+              rename ("GeoUID_06"= "GeoUID")
+popu_21_16_11_06 <- merge (popu_21_16_11, popu_21_06, by = "GeoUID_21")
+
+```
+
+
+
+# 2001_2021
+```{r }
+popu_01 <- get_census(dataset = 'CA01', regions=list(C = "01"),
+                      vectors = c("popu_01" = "v_CA01_2"),
+                      level = 'CT', geo_format = "sf") %>% 
+           rename ("Area_01" = "Area (sq km)")
+```
+
+```{r }
+inter_21_01 <- st_join (centroids_21, popu_01, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+
+```{r}
+comp_21_01 <- inter_21_01[complete.cases(inter_21_01[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_01 <- comp_21_01 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_01=popu_01/Area_01) %>%
+  select(GeoUID_21, GeoUID, popu_01, den_01)
+```
+
+
+```{r }
+na_CT_01 <- inter_21_01[is.na(inter_21_01$GeoUID), ]%>%
+  mutate (den_01=0) %>%
+  select(GeoUID_21, GeoUID,popu_01, den_01)
+```
+
+
+```{r }
+changed_ct_21_01 <- comp_21_01 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_01 = coalesce (popu_01, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_01, Area_21)   
+
+changed_ct_o_21_01 <- changed_ct_21_01 %>% 
+                      arrange(GeoUID)
+
+unique_id_21_01 <- unique(changed_ct_o_21_01$GeoUID)
+
+
+popu_01_t <- list()
+
+for (id in unique_id_21_01) {
+  changed_ct_o_21_01_temp <- changed_ct_o_21_01[changed_ct_o_21_01$GeoUID == id, ]
+  
+  denominator_21_01 = sum(changed_ct_o_21_01_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_01_temp)) {
+    changed_ct_o_21_01_temp2 <- changed_ct_o_21_01_temp[i, ]
+    
+    numerator_21_01 <- changed_ct_o_21_01_temp2$popu_01 * changed_ct_o_21_01_temp2$popu_21
+    
+    popu_01_t <- append(popu_01_t, numerator_21_01/denominator_21_01)
+  } 
+}
+
+
+popu_01_t <- unlist(popu_01_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_01$popu_01_t <- popu_01_t
+
+chnaged_ct_f_21_01 <- changed_ct_o_21_01 %>%
+  mutate(popu_01=popu_01_t) %>%
+  mutate (den_01=popu_01/Area_21) %>%
+  select ( -popu_21,-popu_01_t, -Area_21)
+```
+
+
+```{r }
+popu_21_01 <- rbind (unchanged_ct_21_01, chnaged_ct_f_21_01,na_CT_01) %>% 
+              
+              rename ("GeoUID_01"="GeoUID")
+
+popu_21_16_11_06_01 <- merge (popu_21_16_11_06, popu_21_01, by = "GeoUID_21")
+```
+
+
+
+
+# 1996_2021
+```{r }
+popu_96 <- get_census(dataset = 'CA1996', regions=list(C = "01"),
+                      vectors = c("popu_96" = "v_CA1996_2"),
+                      level = 'CT', geo_format = "sf")%>% 
+           rename ("Area_96" = "Area (sq km)")
+```
+
+
+```{r }
+inter_21_96 <- st_join (centroids_21, popu_96, join = st_within)
+```
+
+```{r}
+comp_21_96 <- inter_21_96[complete.cases(inter_21_96[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_21_96 <- comp_21_96 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_96=popu_96/Area_96) %>%
+  select(GeoUID_21, GeoUID, popu_96, den_96)
+```
+
+
+```{r }
+na_CT_96 <- inter_21_96[is.na(inter_21_96$GeoUID), ]%>%
+  mutate (den_96=0) %>%
+  select(GeoUID_21, GeoUID,popu_96, den_96)
+```
+
+```{r }
+changed_ct_21_96 <- comp_21_96 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_96 = coalesce (popu_96, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                  select(GeoUID_21,GeoUID, popu_21, popu_96, Area_21)   
+
+changed_ct_o_21_96 <- changed_ct_21_96%>% 
+                      arrange(GeoUID)
+
+unique_id_21_96 <- unique(changed_ct_o_21_96$GeoUID)
+
+
+popu_96_t <- list()
+
+for (id in unique_id_21_96) {
+  changed_ct_o_21_96_temp <- changed_ct_o_21_96[changed_ct_o_21_96$GeoUID == id, ]
+  
+  denominator_21_96 = sum(changed_ct_o_21_96_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_96_temp)) {
+    changed_ct_o_21_96_temp2 <- changed_ct_o_21_96_temp[i, ]
+    
+    numerator_21_96 <- changed_ct_o_21_96_temp2$popu_96 * changed_ct_o_21_96_temp2$popu_21
+    
+    popu_96_t <- append(popu_96_t, numerator_21_96/denominator_21_96)
+  } 
+}
+
+
+popu_96_t <- unlist(popu_96_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_96$popu_96_t <- popu_96_t
+
+chnaged_ct_f_21_96 <- changed_ct_o_21_96 %>%
+  mutate(popu_96=popu_96_t) %>%
+  mutate (den_96=popu_96/Area_21) %>%
+  select ( -popu_21,-popu_96_t, -Area_21)
+```
+
+```{r }
+popu_21_96 <- rbind (unchanged_ct_21_96, chnaged_ct_f_21_96,na_CT_96) %>% 
+              rename ("GeoUID_96"= "GeoUID")
+popu_21_16_11_06_01_96 <- merge (popu_21_16_11_06_01, popu_21_96, by = "GeoUID_21")
+```
+
+
+
+#1991_2021
+```{r }
+popu_91 <- read_sf ("F:/GRADUATE/masters thesis/Data/Shape file/ct_91_data.shp") %>% 
+         rename ("popu_91"= "census_wid", "GeoUID"= "geosid", "Area_91"= "areakm")
+```
+
+
+```{r }
+inter_21_91 <- st_join (centroids_21, popu_91, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+```{r}
+comp_21_91 <- inter_21_91[complete.cases(inter_21_91[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_91 <- comp_21_91 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_91=popu_91/Area_91) %>%
+  select(GeoUID_21, GeoUID, popu_91, den_91)
+```
+
+```{r }
+na_CT_91 <- inter_21_91[is.na(inter_21_91$GeoUID), ]%>%
+  mutate (den_91=0) %>%
+  select(GeoUID_21, GeoUID,popu_91, den_91)
+```
+
+```{r }
+changed_ct_21_91 <- comp_21_91 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_91 = coalesce (popu_91, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_91, Area_21)   
+
+changed_ct_o_21_91 <- changed_ct_21_91%>% 
+                      arrange(GeoUID)
+
+unique_id_21_91 <- unique(changed_ct_o_21_91$GeoUID)
+
+
+popu_91_t <- list()
+
+for (id in unique_id_21_91) {
+  changed_ct_o_21_91_temp <- changed_ct_o_21_91[changed_ct_o_21_91$GeoUID == id, ]
+  
+  denominator_21_91 = sum(changed_ct_o_21_91_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_91_temp)) {
+    changed_ct_o_21_91_temp2 <- changed_ct_o_21_91_temp[i, ]
+    
+    numerator_21_91 <- changed_ct_o_21_91_temp2$popu_91 * changed_ct_o_21_91_temp2$popu_21
+    
+    popu_91_t <- append(popu_91_t, numerator_21_91/denominator_21_91)
+  } 
+}
+
+
+popu_91_t <- unlist(popu_91_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_91$popu_91_t <- popu_91_t
+
+chnaged_ct_f_21_91 <- changed_ct_o_21_91 %>%
+  mutate(popu_91=popu_91_t) %>%
+  mutate (den_91=popu_91/Area_21) %>%
+  select ( -popu_21,-popu_91_t, -Area_21)
+```
+
+```{r }
+popu_21_91 <- rbind (unchanged_ct_21_91, chnaged_ct_f_21_91,na_CT_91) %>% 
+  rename ("GeoUID_91"= "GeoUID")
+popu_21_16_11_06_01_96_91 <- merge (popu_21_16_11_06_01_96, popu_21_91, by = "GeoUID_21")
+```
+
+
+
+
+
+#1986-2021
+```{r}
+sf_use_s2(FALSE)
+
+popu_86 <- read_sf ("F:/GRADUATE/masters thesis/Data/Shape file/ct_86_data.shp") %>%   
+  rename ("popu_86"= "census_wid", "GeoUID"= "geosid", "Area_86"= "areakm")
+```
+```{r }
+inter_21_86 <- st_join (centroids_21, popu_86, join = st_within)%>%
+  st_drop_geometry ()
+```
+  
+```{r}
+comp_21_86 <- inter_21_86[complete.cases(inter_21_86[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_86 <- comp_21_86 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_86=popu_86/Area_86) %>%
+  select(GeoUID_21, GeoUID, popu_86, den_86)
+```
+
+```{r }
+na_CT_86 <- inter_21_86[is.na(inter_21_86$GeoUID), ]%>%
+  mutate (den_86=0) %>%
+  select(GeoUID_21, GeoUID,popu_86, den_86)
+```
+
+```{r }
+changed_ct_21_86 <- comp_21_86 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_86 = coalesce (popu_86, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_86, Area_21)   
+
+changed_ct_o_21_86 <- changed_ct_21_86%>% 
+                      arrange(GeoUID)
+
+unique_id_21_86 <- unique(changed_ct_o_21_86$GeoUID)
+
+
+popu_86_t <- list()
+
+for (id in unique_id_21_86) {
+  changed_ct_o_21_86_temp <- changed_ct_o_21_86[changed_ct_o_21_86$GeoUID == id, ]
+  
+  denominator_21_86 = sum(changed_ct_o_21_86_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_86_temp)) {
+    changed_ct_o_21_86_temp2 <- changed_ct_o_21_86_temp[i, ]
+    
+    numerator_21_86 <- changed_ct_o_21_86_temp2$popu_86 * changed_ct_o_21_86_temp2$popu_21
+    
+    popu_86_t <- append(popu_86_t, numerator_21_86/denominator_21_86)
+  } 
+}
+
+
+popu_86_t <- unlist(popu_86_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_86$popu_86_t <- popu_86_t
+
+chnaged_ct_f_21_86 <- changed_ct_o_21_86 %>%
+  mutate(popu_86=popu_86_t) %>%
+  mutate (den_86=popu_86/Area_21) %>%
+  select ( -popu_21,-popu_86_t, -Area_21)
+```
+
+```{r }
+popu_21_86 <- rbind (unchanged_ct_21_86, chnaged_ct_f_21_86,na_CT_86) %>% 
+  rename ("GeoUID_86"= "GeoUID")
+popu_21_16_11_06_01_96_91_86 <- merge (popu_21_16_11_06_01_96_91, popu_21_86, by = "GeoUID_21")
+```
+
+
+#1981-2021
+```{r }
+popu_81 <- read_sf ("F:/GRADUATE/masters thesis/Data/Shape file/ct_81_data.shp") %>%   
+  rename ("popu_81"= "census_wid", "GeoUID"= "geosid",  "Area_81"= "areakm")
+```
+
+```{r }
+inter_21_81 <- st_join (centroids_21, popu_81, join = st_within)%>%
+  st_drop_geometry ()
+```
+  
+```{r}
+comp_21_81 <- inter_21_81[complete.cases(inter_21_81[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_81 <- comp_21_81 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_81=popu_81/Area_81) %>%
+  select(GeoUID_21, GeoUID, popu_81, den_81)
+```
+
+```{r }
+na_CT_81 <- inter_21_81[is.na(inter_21_81$GeoUID), ]%>%
+  mutate (den_81=0) %>%
+  select(GeoUID_21, GeoUID,popu_81, den_81)
+```
+
+```{r }
+changed_ct_21_81 <- comp_21_81 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_81 = coalesce (popu_81, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_81, Area_21)  
+
+
+changed_ct_o_21_81 <- changed_ct_21_81%>% 
+                      arrange(GeoUID)
+
+unique_id_21_81 <- unique(changed_ct_o_21_81$GeoUID)
+
+
+popu_81_t <- list()
+
+for (id in unique_id_21_81) {
+  changed_ct_o_21_81_temp <- changed_ct_o_21_81[changed_ct_o_21_81$GeoUID == id, ]
+  
+  denominator_21_81 = sum(changed_ct_o_21_81_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_81_temp)) {
+    changed_ct_o_21_81_temp2 <- changed_ct_o_21_81_temp[i, ]
+    
+    numerator_21_81 <- changed_ct_o_21_81_temp2$popu_81 * changed_ct_o_21_81_temp2$popu_21
+    
+    popu_81_t <- append(popu_81_t, numerator_21_81/denominator_21_81)
+  } 
+}
+
+
+popu_81_t <- unlist(popu_81_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_81$popu_81_t <- popu_81_t
+
+chnaged_ct_f_21_81 <- changed_ct_o_21_81 %>%
+  mutate(popu_81=popu_81_t) %>%
+  mutate (den_81=popu_81/Area_21) %>%
+  select ( -popu_21,-popu_81_t, -Area_21)
+```
+
+```{r }
+popu_21_81 <- rbind (unchanged_ct_21_81, chnaged_ct_f_21_81,na_CT_81) %>% 
+  rename ("GeoUID_81"= "GeoUID")
+
+popu_21_16_11_06_01_96_91_86_81 <- merge (popu_21_16_11_06_01_96_91_86, popu_21_81, by = "GeoUID_21")
+```
+
+
+
+
+
+#1976-2021
+```{r }
+popu_76 <- read_sf ("F:/GRADUATE/masters thesis/Data/Shape file/ct_76_data.shp") %>%   
+  rename ("popu_76"= "census_wid", "GeoUID"= "geosid",  "Area_76"= "areakm")
+```
+
+```{r }
+inter_21_76 <- st_join (centroids_21, popu_76, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+
+```{r}
+comp_21_76 <- inter_21_76[complete.cases(inter_21_76[ ,'GeoUID']), ]
+```
+
+
+```{r }
+unchanged_ct_21_76 <- comp_21_76 %>%
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  mutate (den_76=popu_76/Area_76) %>%
+  select(GeoUID_21, GeoUID, popu_76, den_76)
+```
+
+```{r }
+na_CT_76 <- inter_21_76[is.na(inter_21_76$GeoUID), ]%>%
+  mutate (den_76=0) %>%
+  select(GeoUID_21, GeoUID,popu_76, den_76)
+```
+
+```{r }
+changed_ct_21_76 <- comp_21_76 %>%
+                   df.duplicated(GeoUID) %>% 
+                   mutate(popu_76 = coalesce (popu_76, 0)) %>%
+                   mutate(popu_21 = coalesce (popu_21, 0)) %>%
+                   select(GeoUID_21,GeoUID, popu_21, popu_76, Area_21)   
+
+changed_ct_o_21_76 <- changed_ct_21_76%>% 
+                      arrange(GeoUID)
+
+unique_id_21_76 <- unique(changed_ct_o_21_76$GeoUID)
+
+
+popu_76_t <- list()
+
+for (id in unique_id_21_76) {
+  changed_ct_o_21_76_temp <- changed_ct_o_21_76[changed_ct_o_21_76$GeoUID == id, ]
+  
+  denominator_21_76 = sum(changed_ct_o_21_76_temp$popu_21)
+  
+  for (i in 1:nrow(changed_ct_o_21_76_temp)) {
+    changed_ct_o_21_76_temp2 <- changed_ct_o_21_76_temp[i, ]
+    
+    numerator_21_76 <- changed_ct_o_21_76_temp2$popu_76 * changed_ct_o_21_76_temp2$popu_21
+    
+    popu_76_t <- append(popu_76_t, numerator_21_76/denominator_21_76)
+  } 
+}
+
+
+popu_76_t <- unlist(popu_76_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_o_21_76$popu_76_t <- popu_76_t
+
+chnaged_ct_f_21_76 <- changed_ct_o_21_76 %>%
+  mutate(popu_76=popu_76_t) %>%
+  mutate (den_76=popu_76/Area_21) %>%
+  select ( -popu_21,-popu_76_t, -Area_21)
+```
+
+```{r }
+popu_21_76 <- rbind (unchanged_ct_21_76, chnaged_ct_f_21_76,na_CT_76) %>% 
+  rename ("GeoUID_76"= "GeoUID")
+
+popu_21_16_11_06_01_96_91_86_81_76 <- merge (popu_21_16_11_06_01_96_91_86_81, popu_21_76, by = "GeoUID_21")
+```
+
+
+```{r }
+transit_21 <- get_census(dataset='CA21', regions=list(C = "01"),
+                         vectors = c("transit_21" = "v_CA21_7644",
+                                     "mode_tot_21" = "v_CA21_7632"),
+                         level='CT', geo_format = "sf") %>%
+               mutate(transit_per_21= (transit_21/mode_tot_21)*100) %>% 
+             rename ("GeoUID_21" = "GeoUID")
+```
+
+```{r }
+transit_16 <- get_census(dataset='CA16', regions=list(C = "01"),
+                         vectors = c("transit_16" = "v_CA16_5801",
+                                     "mode_tot_16" = "v_CA16_5792"),
+                         level='CT', geo_format = "sf") %>% mutate(transit_per_16= (transit_16/mode_tot_16)*100)
+
+centroids_transit_21 <- st_point_on_surface(transit_21)
+```
+```{r }
+inter_transit_21_16 <- st_join (centroids_transit_21, transit_16, join = st_within)%>%
+                   st_drop_geometry
+```
+
+```{r}
+comp_transit_21_16 <- inter_transit_21_16[complete.cases(inter_transit_21_16[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_transit_21_16 <- comp_transit_21_16 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_16)
+```
+
+```{r }
+na_CT_transit_16 <- inter_transit_21_16[is.na(inter_transit_21_16$GeoUID), ]%>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_16) 
+```
+
+```{r }
+changed_ct_transit_21_16 <- comp_transit_21_16 %>%
+  df.duplicated(GeoUID) %>%
+  select(GeoUID_21, GeoUID, transit_16, transit_21, transit_per_21, mode_tot_16, mode_tot_21) %>%  
+  mutate(transit_21 = coalesce (transit_21, 0)) %>% 
+  mutate (mode_tot_21 = coalesce (mode_tot_21, 0))
+  
+changed_ct_transit_o_21_16 <- changed_ct_transit_21_16%>% 
+                      arrange(GeoUID)
+
+unique_id_transit_21_16 <- unique(changed_ct_transit_o_21_16$GeoUID)
+
+
+transit_16_t <- list()
+
+for (id in unique_id_transit_21_16) {
+  changed_ct_transit_o_21_16_temp <- changed_ct_transit_o_21_16[changed_ct_transit_o_21_16$GeoUID == id, ]
+  
+  denominator_transit_21_16 = sum(changed_ct_transit_o_21_16_temp$transit_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_16_temp)) {
+    changed_ct_transit_o_21_16_temp2 <- changed_ct_transit_o_21_16_temp[i, ]
+    
+    numerator_transit_21_16 <- changed_ct_transit_o_21_16_temp2$transit_16 * changed_ct_transit_o_21_16_temp2$transit_21
+    
+    transit_16_t <- append(transit_16_t, numerator_transit_21_16/denominator_transit_21_16)
+  } 
+}
+
+transit_16_t <- unlist(transit_16_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_16$transit_16_t <- transit_16_t
+
+chnaged_ct_transit_f1_21_16 <- changed_ct_transit_o_21_16 %>%
+  mutate(transit_16=transit_16_t) %>%
+  select(-transit_16_t, -mode_tot_21,-mode_tot_16)
+
+
+mode_tot_16_t <- list()
+
+for (id in unique_id_transit_21_16) {
+  changed_ct_transit_o_21_16_temp3 <- changed_ct_transit_o_21_16[changed_ct_transit_o_21_16$GeoUID == id, ]
+  
+  denominator_mode_tot_21_16 = sum(changed_ct_transit_o_21_16_temp3$mode_tot_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_16_temp3)) {
+    changed_ct_transit_o_21_16_temp4 <- changed_ct_transit_o_21_16_temp3[i, ]
+    
+    numerator_mode_tot_21_16 <- changed_ct_transit_o_21_16_temp4$mode_tot_16 * 
+                                changed_ct_transit_o_21_16_temp4$mode_tot_21
+    
+    mode_tot_16_t <- append(mode_tot_16_t, numerator_mode_tot_21_16/denominator_mode_tot_21_16)
+  } 
+}
+
+mode_tot_16_t <- unlist(mode_tot_16_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_16$mode_tot_16_t <- mode_tot_16_t
+
+chnaged_ct_transit_f2_21_16 <- changed_ct_transit_o_21_16 %>%
+  mutate(mode_tot_16=mode_tot_16_t) %>%
+  select(-mode_tot_16_t, -mode_tot_21, -transit_16, -transit_21, -transit_16_t, -GeoUID, -transit_per_21)
+```
+
+
+```{r }
+chnaged_ct_transit_f_21_16 <- merge(chnaged_ct_transit_f1_21_16, chnaged_ct_transit_f2_21_16, by = "GeoUID_21")%>%
+                             mutate(transit_per_16= (transit_16/mode_tot_16)*100) %>% 
+                             select (GeoUID_21, GeoUID, transit_per_16, transit_per_21)
+
+transit_16_21 <- rbind (unchanged_ct_transit_21_16, chnaged_ct_transit_f_21_16,na_CT_transit_16) %>% 
+                 rename ("GeoUID_16"= "GeoUID")
+```
+
+
+
+#2011-2021
+```{r }
+transit_11 <- get_census(dataset='CA11', regions=list(C = "01"),
+                         vectors = c("transit_11" = "v_CA11N_2200",
+                                     "mode_tot_11" = "v_CA11N_2191"),
+                         level='CT', geo_format = "sf") %>% mutate(transit_per_11= (transit_11/mode_tot_11)*100)
+```
+
+```{r }
+inter_transit_21_11 <- st_join (centroids_transit_21, transit_11, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+```{r}
+comp_transit_21_11 <- inter_transit_21_11[complete.cases(inter_transit_21_11[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_transit_21_11 <- comp_transit_21_11 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_11)
+```
+
+```{r }
+na_CT_transit_11 <- inter_transit_21_11[is.na(inter_transit_21_11$GeoUID), ]%>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_11)
+```
+
+
+```{r }
+changed_ct_transit_21_11 <- comp_transit_21_11 %>%
+  df.duplicated(GeoUID) %>%
+  select(GeoUID_21, GeoUID, transit_11, transit_21, transit_per_21, mode_tot_11, mode_tot_21) %>%  
+  mutate(transit_21 = coalesce (transit_21, 0)) %>% 
+  mutate (mode_tot_21 = coalesce (mode_tot_21, 0))
+
+changed_ct_transit_o_21_11 <- changed_ct_transit_21_11%>% 
+                      arrange(GeoUID)
+
+unique_id_transit_21_11 <- unique(changed_ct_transit_o_21_11$GeoUID)
+
+
+transit_11_t <- list()
+
+for (id in unique_id_transit_21_11) {
+  changed_ct_transit_o_21_11_temp <- changed_ct_transit_o_21_11[changed_ct_transit_o_21_11$GeoUID == id, ]
+  
+  denominator_transit_21_11 = sum(changed_ct_transit_o_21_11_temp$transit_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_11_temp)) {
+    changed_ct_transit_o_21_11_temp2 <- changed_ct_transit_o_21_11_temp[i, ]
+    
+    numerator_transit_21_11 <- changed_ct_transit_o_21_11_temp2$transit_11 * changed_ct_transit_o_21_11_temp2$transit_21
+    
+    transit_11_t <- append(transit_11_t, numerator_transit_21_11/denominator_transit_21_11)
+  } 
+}
+
+transit_11_t <- unlist(transit_11_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_11$transit_11_t <- transit_11_t
+
+chnaged_ct_transit_f1_21_11 <- changed_ct_transit_o_21_11 %>%
+  mutate(transit_11=transit_11_t) %>%
+  select(-transit_11_t, -mode_tot_21,-mode_tot_11)
+
+
+mode_tot_11_t <- list()
+
+for (id in unique_id_transit_21_11) {
+  changed_ct_transit_o_21_11_temp3 <- changed_ct_transit_o_21_11[changed_ct_transit_o_21_11$GeoUID == id, ]
+  
+  denominator_mode_tot_21_11 = sum(changed_ct_transit_o_21_11_temp3$mode_tot_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_11_temp3)) {
+    changed_ct_transit_o_21_11_temp4 <- changed_ct_transit_o_21_11_temp3[i, ]
+    
+    numerator_mode_tot_21_11 <- changed_ct_transit_o_21_11_temp4$mode_tot_11 * 
+      changed_ct_transit_o_21_11_temp4$mode_tot_21
+    
+    mode_tot_11_t <- append(mode_tot_11_t, numerator_mode_tot_21_11/denominator_mode_tot_21_11)
+  } 
+}
+
+mode_tot_11_t <- unlist(mode_tot_11_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_11$mode_tot_11_t <- mode_tot_11_t
+
+chnaged_ct_transit_f2_21_11 <- changed_ct_transit_o_21_11 %>%
+  mutate(mode_tot_11=mode_tot_11_t) %>%
+  select(-mode_tot_11_t, -mode_tot_21, -transit_11, -transit_21, -transit_11_t, -GeoUID, -transit_per_21)
+
+
+chnaged_ct_transit_f_21_11 <- merge(chnaged_ct_transit_f1_21_11, chnaged_ct_transit_f2_21_11, by = "GeoUID_21")%>%
+  mutate(transit_per_11= (transit_11/mode_tot_11)*100) %>% 
+  select (GeoUID_21, GeoUID, transit_per_11, transit_per_21)
+```
+
+```{r }
+transit_11_21 <- rbind (unchanged_ct_transit_21_11, chnaged_ct_transit_f_21_11,na_CT_transit_11) %>% 
+  rename ("GeoUID_11"= "GeoUID") %>%
+  select (-transit_per_21)
+
+transit_21_16_11 <- merge (transit_16_21, transit_11_21, by = "GeoUID_21")
+```
+
+#2006-2021
+```{r }
+transit_06 <- get_census(dataset='CA06', regions=list(C = "01"),
+                         vectors = c("transit_06" = "v_CA06_1103",
+                                     "mode_tot_06" = "v_CA06_1100"),
+                         level='CT', geo_format = "sf") %>% mutate(transit_per_06= (transit_06/mode_tot_06)*100)
+```
+
+```{r }
+inter_transit_21_06 <- st_join (centroids_transit_21, transit_06, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+```{r}
+comp_transit_21_06 <- inter_transit_21_06[complete.cases(inter_transit_21_06[ ,'GeoUID']), ]
+```
+
+```{r}
+unchanged_ct_transit_21_06 <- comp_transit_21_06 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_06)
+```
+
+```{r }
+na_CT_transit_06 <- inter_transit_21_06[is.na(inter_transit_21_06$GeoUID), ]%>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_06)
+```
+
+
+```{r }
+changed_ct_transit_21_06 <- comp_transit_21_06 %>%
+  df.duplicated(GeoUID) %>%
+  select(GeoUID_21, GeoUID, transit_06, transit_21, transit_per_21, mode_tot_06, mode_tot_21) %>%  
+  mutate(transit_21 = coalesce (transit_21, 0)) %>% 
+  mutate (mode_tot_21 = coalesce (mode_tot_21, 0))
+
+changed_ct_transit_o_21_06 <- changed_ct_transit_21_06%>% 
+                      arrange(GeoUID)
+
+unique_id_transit_21_06 <- unique(changed_ct_transit_o_21_06$GeoUID)
+
+
+transit_06_t <- list()
+
+for (id in unique_id_transit_21_06) {
+  changed_ct_transit_o_21_06_temp <- changed_ct_transit_o_21_06[changed_ct_transit_o_21_06$GeoUID == id, ]
+  
+  denominator_transit_21_06 = sum(changed_ct_transit_o_21_06_temp$transit_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_06_temp)) {
+    changed_ct_transit_o_21_06_temp2 <- changed_ct_transit_o_21_06_temp[i, ]
+    
+    numerator_transit_21_06 <- changed_ct_transit_o_21_06_temp2$transit_06 * changed_ct_transit_o_21_06_temp2$transit_21
+    
+    transit_06_t <- append(transit_06_t, numerator_transit_21_06/denominator_transit_21_06)
+  } 
+}
+
+transit_06_t <- unlist(transit_06_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_06$transit_06_t <- transit_06_t
+
+chnaged_ct_transit_f1_21_06 <- changed_ct_transit_o_21_06 %>%
+  mutate(transit_06=transit_06_t) %>%
+  select(-transit_06_t, -mode_tot_21,-mode_tot_06)
+
+
+mode_tot_06_t <- list()
+
+for (id in unique_id_transit_21_06) {
+  changed_ct_transit_o_21_06_temp3 <- changed_ct_transit_o_21_06[changed_ct_transit_o_21_06$GeoUID == id, ]
+  
+  denominator_mode_tot_21_06 = sum(changed_ct_transit_o_21_06_temp3$mode_tot_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_06_temp3)) {
+    changed_ct_transit_o_21_06_temp4 <- changed_ct_transit_o_21_06_temp3[i, ]
+    
+    numerator_mode_tot_21_06 <- changed_ct_transit_o_21_06_temp4$mode_tot_06 * 
+      changed_ct_transit_o_21_06_temp4$mode_tot_21
+    
+    mode_tot_06_t <- append(mode_tot_06_t, numerator_mode_tot_21_06/denominator_mode_tot_21_06)
+  } 
+}
+
+mode_tot_06_t <- unlist(mode_tot_06_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_06$mode_tot_06_t <- mode_tot_06_t
+
+chnaged_ct_transit_f2_21_06 <- changed_ct_transit_o_21_06 %>%
+  mutate(mode_tot_06=mode_tot_06_t) %>%
+  select(-mode_tot_06_t, -mode_tot_21, -transit_06, -transit_21, -transit_06_t, -GeoUID, -transit_per_21)
+
+
+chnaged_ct_transit_f_21_06 <- merge(chnaged_ct_transit_f1_21_06, chnaged_ct_transit_f2_21_06, by = "GeoUID_21")%>%
+  mutate(transit_per_06= (transit_06/mode_tot_06)*100) %>% 
+  select (GeoUID_21, GeoUID, transit_per_06, transit_per_21)
+```
+
+
+```{r }
+transit_06_21 <- rbind (unchanged_ct_transit_21_06, chnaged_ct_transit_f_21_06,na_CT_transit_06) %>% 
+  rename ("GeoUID_06"= "GeoUID")%>%
+  select (-transit_per_21)
+
+transit_21_16_11_06 <- merge (transit_21_16_11, transit_06_21, by = "GeoUID_21")
+```
+
+
+
+
+#2001-2021
+```{r }
+transit_01 <- get_census(dataset='CA01', regions=list(C = "01"),
+                         vectors = c("transit_01_m" = "v_CA01_1257", "transit_01_f" = "v_CA01_1266",
+                                     "mode_tot_01" = "v_CA01_1253"),
+                         level='CT', geo_format = "sf") %>% mutate(transit_01 = (transit_01_f+transit_01_m),
+                                                                   transit_per_01= (transit_01/mode_tot_01)*100)
+```
+
+```{r }
+inter_transit_21_01 <- st_join (centroids_transit_21, transit_01, join = st_within)%>%
+  st_drop_geometry ()
+```
+
+```{r}
+comp_transit_21_01 <- inter_transit_21_01[complete.cases(inter_transit_21_01[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_transit_21_01 <- comp_transit_21_01 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_01)
+```
+
+```{r }
+na_CT_transit_01 <- inter_transit_21_01[is.na(inter_transit_21_01$GeoUID), ]%>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_01)
+```
+
+
+```{r }
+changed_ct_transit_21_01 <- comp_transit_21_01 %>%
+  df.duplicated(GeoUID) %>%
+  select(GeoUID_21, GeoUID, transit_01, transit_21, transit_per_21, mode_tot_01, mode_tot_21) %>%  
+  mutate(transit_21 = coalesce (transit_21, 0)) %>% 
+  mutate (mode_tot_21 = coalesce (mode_tot_21, 0))
+
+changed_ct_transit_o_21_01 <- changed_ct_transit_21_01%>% 
+                      arrange(GeoUID)
+
+unique_id_transit_21_01 <- unique(changed_ct_transit_o_21_01$GeoUID)
+
+
+transit_01_t <- list()
+
+for (id in unique_id_transit_21_01) {
+  changed_ct_transit_o_21_01_temp <- changed_ct_transit_o_21_01[changed_ct_transit_o_21_01$GeoUID == id, ]
+  
+  denominator_transit_21_01 = sum(changed_ct_transit_o_21_01_temp$transit_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_01_temp)) {
+    changed_ct_transit_o_21_01_temp2 <- changed_ct_transit_o_21_01_temp[i, ]
+    
+    numerator_transit_21_01 <- changed_ct_transit_o_21_01_temp2$transit_01 * changed_ct_transit_o_21_01_temp2$transit_21
+    
+    transit_01_t <- append(transit_01_t, numerator_transit_21_01/denominator_transit_21_01)
+  } 
+}
+
+transit_01_t <- unlist(transit_01_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_01$transit_01_t <- transit_01_t
+
+chnaged_ct_transit_f1_21_01 <- changed_ct_transit_o_21_01 %>%
+  mutate(transit_01=transit_01_t) %>%
+  select(-transit_01_t, -mode_tot_21,-mode_tot_01)
+
+
+mode_tot_01_t <- list()
+
+for (id in unique_id_transit_21_01) {
+  changed_ct_transit_o_21_01_temp3 <- changed_ct_transit_o_21_01[changed_ct_transit_o_21_01$GeoUID == id, ]
+  
+  denominator_mode_tot_21_01 = sum(changed_ct_transit_o_21_01_temp3$mode_tot_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_01_temp3)) {
+    changed_ct_transit_o_21_01_temp4 <- changed_ct_transit_o_21_01_temp3[i, ]
+    
+    numerator_mode_tot_21_01 <- changed_ct_transit_o_21_01_temp4$mode_tot_01 * 
+      changed_ct_transit_o_21_01_temp4$mode_tot_21
+    
+    mode_tot_01_t <- append(mode_tot_01_t, numerator_mode_tot_21_01/denominator_mode_tot_21_01)
+  } 
+}
+
+mode_tot_01_t <- unlist(mode_tot_01_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_01$mode_tot_01_t <- mode_tot_01_t
+
+chnaged_ct_transit_f2_21_01 <- changed_ct_transit_o_21_01 %>%
+  mutate(mode_tot_01=mode_tot_01_t) %>%
+  select(-mode_tot_01_t, -mode_tot_21, -transit_01, -transit_21, -transit_01_t, -GeoUID, -transit_per_21)
+
+
+chnaged_ct_transit_f_21_01 <- merge(chnaged_ct_transit_f1_21_01, chnaged_ct_transit_f2_21_01, by = "GeoUID_21")%>%
+  mutate(transit_per_01= (transit_01/mode_tot_01)*100) %>% 
+  select (GeoUID_21, GeoUID, transit_per_01, transit_per_21)
+```
+
+
+```{r }
+transit_01_21 <- rbind (unchanged_ct_transit_21_01, chnaged_ct_transit_f_21_01,na_CT_transit_01) %>% 
+  rename ("GeoUID_01"= "GeoUID")%>%
+  select (-transit_per_21)
+
+transit_21_16_11_06_01 <- merge (transit_21_16_11_06, transit_01_21, by = "GeoUID_21")
+```
+
+
+
+
+
+
+#1996-2021
+```{r }
+transit_96 <- get_census(dataset='CA1996', regions=list(C = "01"),
+                         vectors = c("transit_96_m" = "v_CA1996_1328", "transit_96_f" = "v_CA1996_1337",
+                                     "mode_tot_96" = "v_CA1996_1324"),
+                         level='CT', geo_format = "sf") %>% mutate(transit_96 = (transit_96_f+transit_96_m),
+                                                                   transit_per_96= (transit_96/mode_tot_96)*100)
+```
+
+```{r }
+inter_transit_21_96 <- st_join (centroids_transit_21, transit_96, join = st_within)%>%
+  st_drop_geometry ()
+```
+  
+```{r}
+comp_transit_21_96 <- inter_transit_21_96[complete.cases(inter_transit_21_96[ ,'GeoUID']), ]
+```
+
+```{r }
+unchanged_ct_transit_21_96 <- comp_transit_21_96 %>% 
+  group_by(GeoUID) %>% 
+  mutate(count = n()) %>% 
+  ungroup() %>% 
+  filter(count == 1) %>% 
+  select(-count) %>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_96)
+```
+
+```{r }
+na_CT_transit_96 <- inter_transit_21_96[is.na(inter_transit_21_96$GeoUID), ]%>%
+  select(GeoUID_21, GeoUID, transit_per_21, transit_per_96)
+```
+
+```{r }
+changed_ct_transit_21_96 <- comp_transit_21_96 %>%
+  df.duplicated(GeoUID) %>%
+  select(GeoUID_21, GeoUID, transit_96, transit_21, transit_per_21, mode_tot_96, mode_tot_21) %>%  
+  mutate(transit_21 = coalesce (transit_21, 0)) %>% 
+  mutate (mode_tot_21 = coalesce (mode_tot_21, 0))
+
+changed_ct_transit_o_21_96 <- changed_ct_transit_21_96%>% 
+                      arrange(GeoUID)
+
+unique_id_transit_21_96 <- unique(changed_ct_transit_o_21_96$GeoUID)
+
+
+transit_96_t <- list()
+
+for (id in unique_id_transit_21_96) {
+  changed_ct_transit_o_21_96_temp <- changed_ct_transit_o_21_96[changed_ct_transit_o_21_96$GeoUID == id, ]
+  
+  denominator_transit_21_96 = sum(changed_ct_transit_o_21_96_temp$transit_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_96_temp)) {
+    changed_ct_transit_o_21_96_temp2 <- changed_ct_transit_o_21_96_temp[i, ]
+    
+    numerator_transit_21_96 <- changed_ct_transit_o_21_96_temp2$transit_96 * changed_ct_transit_o_21_96_temp2$transit_21
+    
+    transit_96_t <- append(transit_96_t, numerator_transit_21_96/denominator_transit_21_96)
+  } 
+}
+
+transit_96_t <- unlist(transit_96_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_96$transit_96_t <- transit_96_t
+
+chnaged_ct_transit_f1_21_96 <- changed_ct_transit_o_21_96 %>%
+  mutate(transit_96=transit_96_t) %>% 
+  select(-transit_96_t, -mode_tot_21,-mode_tot_96)
+
+
+mode_tot_96_t <- list()
+
+for (id in unique_id_transit_21_96) {
+  changed_ct_transit_o_21_96_temp3 <- changed_ct_transit_o_21_96[changed_ct_transit_o_21_96$GeoUID == id, ]
+  
+  denominator_mode_tot_21_96 = sum(changed_ct_transit_o_21_96_temp3$mode_tot_21)
+  
+  for (i in 1:nrow(changed_ct_transit_o_21_96_temp3)) {
+    changed_ct_transit_o_21_96_temp4 <- changed_ct_transit_o_21_96_temp3[i, ]
+    
+    numerator_mode_tot_21_96 <- changed_ct_transit_o_21_96_temp4$mode_tot_96 * 
+      changed_ct_transit_o_21_96_temp4$mode_tot_21
+    
+    mode_tot_96_t <- append(mode_tot_96_t, numerator_mode_tot_21_96/denominator_mode_tot_21_96)
+  } 
+}
+
+mode_tot_96_t <- unlist(mode_tot_96_t, use.names = FALSE)%>%
+  as.integer ()
+
+changed_ct_transit_o_21_96$mode_tot_96_t <- mode_tot_96_t
+
+chnaged_ct_transit_f2_21_96 <- changed_ct_transit_o_21_96 %>%
+  mutate(mode_tot_96=mode_tot_96_t) %>% 
+  select(-mode_tot_96_t, -mode_tot_21, -transit_96, -transit_21, -transit_96_t, -GeoUID, -transit_per_21)
+
+
+chnaged_ct_transit_f_21_96 <- merge(chnaged_ct_transit_f1_21_96, chnaged_ct_transit_f2_21_96, by = "GeoUID_21")%>%
+  mutate(transit_per_96= (transit_96/mode_tot_96)*100) %>% 
+  select (GeoUID_21, GeoUID, transit_per_96, transit_per_21)
+```
+
+```{r }
+transit_96_21 <- rbind (unchanged_ct_transit_21_96, chnaged_ct_transit_f_21_96,na_CT_transit_96) %>% 
+  rename ("GeoUID_96"= "GeoUID")%>%
+  select (-transit_per_21)
+
+transit_21_16_11_06_01_96 <- merge (transit_21_16_11_06_01, transit_96_21, by = "GeoUID_21")
+```
+
+data <- merge (popu_21_16_11_06_01_96_91_86_81_76, transit_21_16_11_06_01_96, by = "GeoUID_21") %>% 
+        select (GeoUID_21, popu_21,  popu_16, popu_11, popu_06, popu_01, popu_96, popu_91, popu_86, popu_81,den_21, den_16, den_11,den_06, den_01, den_96, den_91, den_86, den_81, den_76,
+        popu_76,transit_per_96, transit_per_21, transit_per_16, transit_per_11, transit_per_06, transit_per_01)
+base <- popu_21 %>% 
+        select (GeoUID_21)%>% 
+         merge(data, by ='GeoUID_21')
+
+st_write(inter_21_96, "F:/GRADUATE/masters thesis/Data/96_21_check.gpkg")
+write.csv (inter_21_76, "F:/GRADUATE/masters thesis/Data/ popu_21_76.csv")
